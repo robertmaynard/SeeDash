@@ -1,93 +1,129 @@
 #!/usr/bin/python
-import urllib
-import urllib2
+
 from base64 import *
 import argparse
-import getpass
 import sys
+import urllib
+import itertools
 
+from operator import itemgetter, attrgetter
 
-def openCDash():
-  return 'http://open.cdash.org'
+from queryCDash import *
 
-def askForLogin():
-  user = raw_input("User: ")
-  passw = getpass.getpass(stream=sys.stderr)
-  return (user,passw)
+def perMachineResults(machineResults):
 
-def queryCDash(url,getString):
-  if(url[-1:] != '/'):
-    url += '/'
-  if(url[-4:] != 'api/'):
-    url += 'api/'
-  fullURL = url+getString
-  print fullURL
-  request = urllib2.Request(fullURL)
-  r = urllib2.urlopen(request)
-  return r.readlines()
+  def machine_info(m):
+    return str(m.Machine)
 
+  #flatten all tests from each machine into a ist
+  allTests = [test for machine in machineResults for test in machine.Tests]
 
-#Todo args really need to become full class types
-#that self encode
-def createGetString(args):
-  getString = '?'
-  getString += 'method='+args['method']
-  getString += '&'
-  getString += 'task='+args['task']
-  getString += '&'
-  if('project' in args):
-    getString += 'project='+args['project']
-    getString += '&'
-  if('group' in args):
-    getString += 'group='+args['group']
-  return getString
+  #test ids are unique, can't use them as unique identifiers
+  keyFunc = attrgetter('Name')
+  allTests = sorted(allTests, key=keyFunc)
+  for k, g in itertools.groupby(allTests, keyFunc):
+    machineNames = map(machine_info,g)
+    print k + " Failed on machines:\n\t" + "\n\t".join(machineNames)
+
+    devs = [d for m in g for d in m.Devs]
+    if(len(devs) > 0):
+      devs = removeDuplicates(devs)
+      print "Developers :\n\t" + "\n\t".join(devs)
+
+    print "\n"
 
 
 def listProjects(url):
   args = { 'method' : 'project' , 'task' : 'list'}
   getString = createGetString(args)
+  print "Getting projects from CDash"
   result = queryCDash(url,getString)
-  submissions = eval(result[0]) #ugggggh
+  lines = result.readlines()
+  print "Parsing projects from CDash"
+  submissions = eval(lines[0]) #ugggggh
   for i in submissions:
     print i['name']
 
-
 #groups need to become class types
-def listErrors(url,project,group):
+def findErrorsByMachine(url,project,group):
+
+  def make_machine(items):
+    machineId, parameters = items
+    return CDMachine(machineId,parameters)
+
   args = { 'method' : 'build' , 'task' : 'sitetestfailures'}
   args['project']=project
   args['group']=group
   getString = createGetString(args)
+
+  print "Getting projects from CDash"
   result = queryCDash(url,getString)
-  submissions = eval(result[0]) #ugggggh
-  tfails = dict()
-  print "-"*20, "ANALYZING", "-"*20
-  if(len(submissions) == 0):
-    print "No Results."
-    return
+  lines = result.readlines()
 
-  for skey in submissions.keys():
-    submission = submissions[skey]
-    bname = submission['buildname']
-    bfails = submission['tests']
-    if len(bfails) > 100:
-      print "WARNING IGNORING ", bname, len(bfails)
-      continue
-    print bname, ",", len(bfails)
-    for tnum in range(0, len(bfails)):
-      test = bfails[tnum]
-      tname = test['name']
-      if not tname in tfails:
-         tfails[tname] = list()
-      tfails[tname].append(bname)
+  print "Parsing projects from CDash"
+  submissions = eval(lines[0]) #ugggggh
+  machines = map(make_machine, submissions.iteritems())
+  print  "Determined failures per machine"
+  return machines
 
-  print "-"*20, "REPORT", "-"*20
-  print len(tfails)," FAILURES"
-  failcounts = map(lambda x: (x,len(tfails[x])), tfails.keys())
-  sortedfails = sorted(failcounts, key=lambda fail: fail[1])
-  for test in sortedfails:
-    tname = test[0]
-    print tname, ",", len(tfails[tname]), ",", tfails[tname]
+
+def findDevsPerMachine(machines):
+
+  def unique_by_name(x):
+    return x.File
+
+  def test_contains(test,files):
+    for f in files:
+      if f in test.Name:
+        return True
+    return False
+
+  #For each machine uery the update page to see what files have changed.
+  for machine in machines:
+    query = 'buildid=' + str(machine.Id)
+    page = scrapeCDash(openCDash(),'viewUpdate.php', query)
+    print 'Getting names of people that contributed code to machine: ' + str(machine)
+    machine.Devs = extractDevNames(page)
+
+  print machines[0].Devs
+  return machines
+
+#This doesn't work as well as I expected
+def subsetFailuresByUser(machines,userName):
+
+  def unique_by_name(x):
+    return x.File
+
+  def test_contains(test,files):
+    for f in files:
+      if f in test.Name:
+        return True
+    return False
+
+  #For each machine uery the update page to see what files have changed.
+  files = [] #use set to remove duplicates
+  for machine in machines:
+    query = 'buildid=' + str(machine.Id)
+    page = scrapeCDash(openCDash(),'viewUpdate.php', query)
+    print 'Getting modified files for machine: ' + str(machine)
+    modifiedFiles = extractModifiedFileNames(page)
+    for f in modifiedFiles:
+      #find only files that the user might have modified
+      if(userName in f.User):
+        files.append(f)
+
+  #remove duplicate files, use the file names as the unique identifier
+  #as the hash of an object is unique
+  files = removeDuplicates(files, unique_by_name)
+  files = [ f.ClassName() for f in files ] #convert files to import class name section
+
+  #update machines to only store tests that match a file the user
+  #has modified
+  for machine in machines:
+    size = len(machine.Tests)
+    machine.Tests = [test for test in machine.Tests  if test_contains(test,files)]
+
+  return machines
 
 
 def seeDat(settings):
@@ -99,15 +135,27 @@ def seeDat(settings):
     listProjects(openCDash())
   else:
     group = urllib.quote(settings.group)
-    listErrors(openCDash(),project,group)
+    results = findErrorsByMachine(openCDash(),project,group)
+
+    if(settings.devs != None):
+      results = findDevsPerMachine(results)
+
+    perMachineResults(results)
 
 def main():
   parser = argparse.ArgumentParser(description='SeeDash a CLI to CDash.')
   parser.add_argument('project', nargs=1,
                       help='project name you want to list')
-  parser.add_argument('--group', dest='group',
-                      default='Nighly',
+  parser.add_argument('--group',
+                      '-g',
+                      dest='group',
+                      default='Nightly',
                       help="CDash build group to operate on. Examples are Nightly, Experimental, Continous")
+  parser.add_argument('--devs',
+                      '-d',
+                      action='store_true',
+                      dest='devs',
+                      help="find devs that might have caused each test failure")
 
   args = parser.parse_args()
 

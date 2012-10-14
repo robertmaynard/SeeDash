@@ -21,15 +21,18 @@ List all errors in the paraview nightly next
 
     seedash ParaView --group "Nightly (next)"
 
+Find failure in the vtk nightly and list developers that modified
+code per test that might have caused the failure
+
+    seedash VTK --with-devs
+
 ####Features to do:
 
 Find failures and warnings in paraview nightly
 
     seedash ParaView --warnings
 
-Find failure in the vtk nightly you might be part of
 
-    seedash VTK --user UserName
 
 Show only warnings
 
