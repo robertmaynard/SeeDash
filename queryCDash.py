@@ -122,7 +122,10 @@ def extractDevNames(page):
 
   soup = BeautifulSoup(page)
   script = soup.find_all('script', text=re.compile("dbAdd"))
-  rawModFiles = script.text.split('2,"","1",')
-  return map(extractNames,rawModFiles)
+  try:
+    rawModFiles = script.text.split('2,"","1",')
+    return map(extractNames,rawModFiles)
+  except Exception, e:
+      return []
 
 
