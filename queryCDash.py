@@ -60,7 +60,7 @@ class CDModifiedFile:
     return name
 
 def openCDash():
-  return 'http://open.cdash.org'
+  return 'https://open.cdash.org'
 
 def askForLogin():
   user = raw_input("User: ")
