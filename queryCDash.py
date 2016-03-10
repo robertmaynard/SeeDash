@@ -70,8 +70,8 @@ def askForLogin():
 def queryCDash(url,getString):
   if(url[-1:] != '/'):
     url += '/'
-  if(url[-4:] != 'api/'):
-    url += 'api/'
+  if(url[-4:] != 'api/v1/'):
+    url += 'api/v1/'
   fullURL = url+getString
 
   request = urllib2.Request(fullURL)
