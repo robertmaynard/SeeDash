@@ -85,7 +85,6 @@ def findDevsPerMachine(machines):
     print 'Getting names of people that contributed code to machine: ' + str(machine)
     machine.Devs = extractDevNames(page)
 
-  print machines[0].Devs
   return machines
 
 #This doesn't work as well as I expected
@@ -137,7 +136,7 @@ def seeDat(settings):
     group = urllib.quote(settings.group)
     results = findErrorsByMachine(openCDash(),project,group)
 
-    if(settings.devs != None):
+    if(settings.devs):
       results = findDevsPerMachine(results)
 
     perMachineResults(results)
